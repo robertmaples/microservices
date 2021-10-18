@@ -2,7 +2,8 @@ name := "shopping-cart-service"
 
 organization := "com.lightbend.akka.samples"
 organizationHomepage := Some(url("https://akka.io"))
-licenses := Seq(("CC0", url("https://creativecommons.org/publicdomain/zero/1.0")))
+licenses := Seq(
+  ("CC0", url("https://creativecommons.org/publicdomain/zero/1.0")))
 
 scalaVersion := "2.13.5"
 
@@ -73,3 +74,16 @@ libraryDependencies ++= Seq(
   "org.scalikejdbc" %% "scalikejdbc-config" % ScalikeJdbcVersion,
   "com.typesafe.akka" %% "akka-stream-kafka" % AlpakkaKafkaVersion,
   "com.lightbend.akka" %% "akka-projection-testkit" % AkkaProjectionVersion % Test)
+
+/**
+ * https://doc.akka.io/docs/akka-grpc/current/buildtools/sbt.html
+ *
+ * Protocol Buffers does not distribute binaries of protoc for use on Apple Silicon (ARM/M1) for the time being.
+ * You may build protoc locally and make ScalaPB use the local build by setting PB.protocExecutable.
+ */
+
+PB.protocExecutable := {
+  if (protocbridge.SystemDetector.detectedClassifier() == "osx-aarch_64")
+    file("/usr/local/bin/protoc")
+  else PB.protocExecutable.value
+}
