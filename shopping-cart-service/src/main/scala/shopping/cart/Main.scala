@@ -33,5 +33,4 @@ object Main {
     val grpcService = new ShoppingCartServiceImpl
     ShoppingCartServer.start(grpcInterface, grpcPort, system, grpcService)
   }
-
 }
