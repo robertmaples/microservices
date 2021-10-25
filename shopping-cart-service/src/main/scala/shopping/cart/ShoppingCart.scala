@@ -2,6 +2,18 @@ package shopping.cart
 
 import akka.actor.typed.ActorRef
 import akka.pattern.StatusReply
+import akka.persistence.typed.scaladsl.ReplyEffect
+import akka.persistence.typed.scaladsl.Effect
+import akka.cluster.sharding.typed.scaladsl.EntityTypeKey
+import akka.actor.typed.ActorSystem
+import akka.cluster.sharding.typed.scaladsl.ClusterSharding
+import akka.cluster.sharding.typed.scaladsl.Entity
+import akka.actor.typed.Behavior
+import akka.persistence.typed.scaladsl.EventSourcedBehavior
+import akka.persistence.typed.PersistenceId
+import akka.persistence.typed.scaladsl.RetentionCriteria
+import akka.actor.typed.SupervisorStrategy
+import scala.concurrent.duration._
 
 object ShoppingCart {
 
@@ -52,5 +64,56 @@ object ShoppingCart {
   }
   object State {
     val empty = State(items = Map.empty)
+  }
+
+  private def handleCommand(
+      cartId: String,
+      state: State,
+      command: Command): ReplyEffect[Event, State] = {
+    command match {
+      case AddItem(itemId, quantity, replyTo) =>
+        if (state.hasItem(itemId))
+          Effect.reply(replyTo)(
+            StatusReply.Error(
+              s"Item '$itemId' was already added to this shopping cart"))
+        else if (quantity <= 0)
+          Effect.reply(replyTo)(
+            StatusReply.Error("Quantity must be greater than zero"))
+        else
+          Effect
+            .persist(ItemAdded(cartId, itemId, quantity))
+            .thenReply(replyTo) { updatedCart =>
+              StatusReply.Success(Summary(updatedCart.items))
+            }
+    }
+  }
+
+  private def handleEvent(state: State, event: Event) = {
+    event match {
+      case ItemAdded(cartId, itemId, quantity) =>
+        state.updateItem(itemId, quantity)
+    }
+  }
+
+  val EntityKey: EntityTypeKey[Command] = EntityTypeKey[Command]("ShoppingCart")
+
+  def init(system: ActorSystem[_]): Unit = {
+    ClusterSharding(system).init(Entity(EntityKey) { entityContext =>
+      ShoppingCart(entityContext.entityId)
+    })
+  }
+
+  def apply(cartId: String): Behavior[Command] = {
+    EventSourcedBehavior
+      .withEnforcedReplies[Command, Event, State](
+        persistenceId = PersistenceId(EntityKey.name, cartId),
+        emptyState = State.empty,
+        commandHandler =
+          (state, command) => handleCommand(cartId, state, command),
+        eventHandler = (state, event) => handleEvent(state, event))
+      .withRetention(RetentionCriteria
+        .snapshotEvery(numberOfEvents = 100, keepNSnapshots = 3))
+      .onPersistFailure(
+        SupervisorStrategy.restartWithBackoff(200.millis, 5.seconds, 0.1))
   }
 }
