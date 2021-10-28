@@ -31,7 +31,14 @@ class ShoppingCartServiceImpl(system: ActorSystem[_])
     convertError(response)
   }
 
-  override def checkout(in: proto.CheckoutRequest): Future[proto.Cart] = ???
+  override def checkout(in: proto.CheckoutRequest): Future[proto.Cart] = {
+    logger.info("checkout cart {}", in.cartId)
+    val entityRef = sharding.entityRefFor(ShoppingCart.EntityKey, in.cartId)
+    val reply: Future[ShoppingCart.Summary] =
+      entityRef.askWithStatus(ShoppingCart.AddItem(in.itemId, in.quantity, _))
+    val response = reply.map(cart => toProtoCart(cart))
+    convertError(response)
+  }
 
   private def toProtoCart(cart: ShoppingCart.Summary): proto.Cart = {
     proto.Cart(cart.items.iterator.map { case (itemId, quantity) =>
