@@ -33,6 +33,10 @@ object ShoppingCart {
       quantity: Int,
       replyTo: ActorRef[StatusReply[Summary]])
       extends Command
+  final case class Checkout(
+      cartId: String,
+      replyTo: ActorRef[StatusReply[Summary]])
+      extends Command
 
   /**
    * Summary of the shopping cart state, used in reply messages.
@@ -48,6 +52,7 @@ object ShoppingCart {
 
   final case class ItemAdded(cartId: String, itemId: String, quantity: Int)
       extends Event
+  final case class CartCheckedOut(cartId: String) extends Event
 
   final case class State(items: Map[String, Int]) extends CborSerializable {
 

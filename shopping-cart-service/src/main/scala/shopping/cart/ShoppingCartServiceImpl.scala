@@ -31,6 +31,8 @@ class ShoppingCartServiceImpl(system: ActorSystem[_])
     convertError(response)
   }
 
+  override def checkout(in: proto.CheckoutRequest): Future[proto.Cart] = ???
+
   private def toProtoCart(cart: ShoppingCart.Summary): proto.Cart = {
     proto.Cart(cart.items.iterator.map { case (itemId, quantity) =>
       proto.Item(itemId, quantity)
