@@ -41,7 +41,8 @@ object ShoppingCart {
   /**
    * Summary of the shopping cart state, used in reply messages.
    */
-  final case class Summary(items: Map[String, Int]) extends CborSerializable
+  final case class Summary(items: Map[String, Int], checkoutOut: Boolean)
+      extends CborSerializable
 
   /**
    * This interface defines all the events that the ShoppingCart supports.
@@ -54,7 +55,8 @@ object ShoppingCart {
       extends Event
   final case class CartCheckedOut(cartId: String) extends Event
 
-  final case class State(items: Map[String, Int]) extends CborSerializable {
+  final case class State(items: Map[String, Int], checkedOut: Boolean)
+      extends CborSerializable {
 
     def hasItem(itemId: String): Boolean = items.contains(itemId)
 
@@ -66,9 +68,12 @@ object ShoppingCart {
         case _ => copy(items = items + (itemId -> quantity))
       }
     }
+    def toggleCheckedOut(): State = {
+      copy(items, !checkedOut)
+    }
   }
   object State {
-    val empty = State(items = Map.empty)
+    val empty = State(items = Map.empty, checkedOut = false)
   }
 
   private def handleCommand(
@@ -77,19 +82,36 @@ object ShoppingCart {
       command: Command): ReplyEffect[Event, State] = {
     command match {
       case AddItem(itemId, quantity, replyTo) =>
-        if (state.hasItem(itemId))
+        if (state.checkedOut) {
+          Effect.reply(replyTo)(StatusReply.Error(
+            s"Cart '$cartId' is checked out. Items cannot be added at this time."))
+        } else {
+          if (state.hasItem(itemId))
+            Effect.reply(replyTo)(
+              StatusReply.Error(
+                s"Item '$itemId' was already added to this shopping cart"))
+          else if (quantity <= 0)
+            Effect.reply(replyTo)(
+              StatusReply.Error("Quantity must be greater than zero"))
+          else
+            Effect
+              .persist(ItemAdded(cartId, itemId, quantity))
+              .thenReply(replyTo) { updatedCart =>
+                StatusReply.Success(
+                  Summary(updatedCart.items, updatedCart.checkedOut))
+              }
+        }
+      case Checkout(cartId, replyTo) =>
+        if (state.checkedOut) {
           Effect.reply(replyTo)(
-            StatusReply.Error(
-              s"Item '$itemId' was already added to this shopping cart"))
-        else if (quantity <= 0)
-          Effect.reply(replyTo)(
-            StatusReply.Error("Quantity must be greater than zero"))
-        else
-          Effect
-            .persist(ItemAdded(cartId, itemId, quantity))
-            .thenReply(replyTo) { updatedCart =>
-              StatusReply.Success(Summary(updatedCart.items))
-            }
+            StatusReply.Error(s"Cart '$cartId' is already checked out."))
+        } else {
+          Effect.persist(CartCheckedOut(cartId)).thenReply(replyTo) {
+            updatedCart =>
+              StatusReply.Success(
+                Summary(updatedCart.items, updatedCart.checkedOut))
+          }
+        }
     }
   }
 
@@ -97,6 +119,7 @@ object ShoppingCart {
     event match {
       case ItemAdded(cartId, itemId, quantity) =>
         state.updateItem(itemId, quantity)
+      case CartCheckedOut(cartId) => state.toggleCheckedOut()
     }
   }
 
