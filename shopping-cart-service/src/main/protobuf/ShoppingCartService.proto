@@ -21,7 +21,6 @@ message AddItemRequest {
 
 message CheckoutRequest {
 	string cartId = 1;
-	Cart cart = 2;
 }
 
 message Cart {

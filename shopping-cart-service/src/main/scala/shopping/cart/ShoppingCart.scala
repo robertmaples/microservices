@@ -33,9 +33,7 @@ object ShoppingCart {
       quantity: Int,
       replyTo: ActorRef[StatusReply[Summary]])
       extends Command
-  final case class Checkout(
-      cartId: String,
-      replyTo: ActorRef[StatusReply[Summary]])
+  final case class Checkout(replyTo: ActorRef[StatusReply[Summary]])
       extends Command
 
   /**
@@ -53,10 +51,16 @@ object ShoppingCart {
 
   final case class ItemAdded(cartId: String, itemId: String, quantity: Int)
       extends Event
-  final case class CartCheckedOut(cartId: String) extends Event
+  final case class CheckoutOut(cartId: String, eventTime: Instant) extends Event
 
-  final case class State(items: Map[String, Int], checkedOut: Boolean)
+  final case class State(items: Map[String, Int], checkoutDate: Option[Instant])
       extends CborSerializable {
+
+    def isCheckedOut: Boolean = checkoutDate.isDefined
+
+    def checkout(now: Instant): State = copy(checkoutDate = Some(now))
+
+    def toSummary: Summary = Summary(items, isCheckedOut)
 
     def hasItem(itemId: String): Boolean = items.contains(itemId)
 
@@ -68,50 +72,48 @@ object ShoppingCart {
         case _ => copy(items = items + (itemId -> quantity))
       }
     }
-    def toggleCheckedOut(): State = {
-      copy(items, !checkedOut)
-    }
   }
   object State {
-    val empty = State(items = Map.empty, checkedOut = false)
+    val empty = State(items = Map.empty, checkoutDate = None)
   }
 
   private def handleCommand(
       cartId: String,
       state: State,
       command: Command): ReplyEffect[Event, State] = {
+    if (!state.isCheckedOut) openShoppingCart(cartId, state, command)
+    else checkedOutShoppingCart(cartId, state, command)
+  }
+
+  private def openShoppingCart(
+      cartId: String,
+      state: State,
+      command: Command): ReplyEffect[Event, State] = {
     command match {
       case AddItem(itemId, quantity, replyTo) =>
-        if (state.checkedOut) {
-          Effect.reply(replyTo)(StatusReply.Error(
-            s"Cart '$cartId' is checked out. Items cannot be added at this time."))
-        } else {
-          if (state.hasItem(itemId))
-            Effect.reply(replyTo)(
-              StatusReply.Error(
-                s"Item '$itemId' was already added to this shopping cart"))
-          else if (quantity <= 0)
-            Effect.reply(replyTo)(
-              StatusReply.Error("Quantity must be greater than zero"))
-          else
-            Effect
-              .persist(ItemAdded(cartId, itemId, quantity))
-              .thenReply(replyTo) { updatedCart =>
-                StatusReply.Success(
-                  Summary(updatedCart.items, updatedCart.checkedOut))
-              }
-        }
-      case Checkout(cartId, replyTo) =>
-        if (state.checkedOut) {
+        if (state.hasItem(itemId))
           Effect.reply(replyTo)(
-            StatusReply.Error(s"Cart '$cartId' is already checked out."))
-        } else {
-          Effect.persist(CartCheckedOut(cartId)).thenReply(replyTo) {
-            updatedCart =>
-              StatusReply.Success(
-                Summary(updatedCart.items, updatedCart.checkedOut))
-          }
-        }
+            StatusReply.Error(
+              s"Item '$itemId' was already added to this shopping cart"))
+        else if (quantity <= 0)
+          Effect.reply(replyTo)(
+            StatusReply.Error("Quantity must be greater than zero"))
+        else
+          Effect
+            .persist(ItemAdded(cartId, itemId, quantity))
+            .thenReply(replyTo) { updatedCart =>
+              StatusReply.Success(updatedCart.toSummary)
+            }
+
+      case Checkout(replyTo) =>
+        if (state.isEmpty)
+          Effect.reply(replyTo)(
+            StatusReply.Error("Cannot checkout an empty shopping cart"))
+        else
+          Effect
+            .persist(CheckedOut(cartId, Instant.now()))
+            .thenReply(replyTo)(updatedCart =>
+              StatusReply.Succes(updatedCart.toSummary))
     }
   }
 
@@ -120,6 +122,22 @@ object ShoppingCart {
       case ItemAdded(cartId, itemId, quantity) =>
         state.updateItem(itemId, quantity)
       case CartCheckedOut(cartId) => state.toggleCheckedOut()
+    }
+  }
+
+  private def checkedOutShoppingCart(
+      cartId: String,
+      state: State,
+      command: Command): ReplyEffect[Event, State] = {
+    command match {
+      case cmd: AddItem =>
+        Effect.reply(cmd.replyTo)(
+          StatusReply.Error(
+            "Can't add an item to an already checked out shopping cart"))
+
+      case cmd: Checkout =>
+        Effect.reply(cmd.replyTo)(
+          StatusReply.Error("Can't checkout already checked out shopping cart"))
     }
   }
 
