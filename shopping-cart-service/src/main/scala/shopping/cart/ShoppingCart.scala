@@ -14,6 +14,7 @@ import akka.persistence.typed.PersistenceId
 import akka.persistence.typed.scaladsl.RetentionCriteria
 import akka.actor.typed.SupervisorStrategy
 import scala.concurrent.duration._
+import java.time.Instant
 
 object ShoppingCart {
 
@@ -35,11 +36,12 @@ object ShoppingCart {
       extends Command
   final case class Checkout(replyTo: ActorRef[StatusReply[Summary]])
       extends Command
+  final case class Get(replyTo: ActorRef[Summary]) extends Command
 
   /**
    * Summary of the shopping cart state, used in reply messages.
    */
-  final case class Summary(items: Map[String, Int], checkoutOut: Boolean)
+  final case class Summary(items: Map[String, Int], checkedOut: Boolean)
       extends CborSerializable
 
   /**
@@ -51,7 +53,7 @@ object ShoppingCart {
 
   final case class ItemAdded(cartId: String, itemId: String, quantity: Int)
       extends Event
-  final case class CheckoutOut(cartId: String, eventTime: Instant) extends Event
+  final case class CheckedOut(cartId: String, eventTime: Instant) extends Event
 
   final case class State(items: Map[String, Int], checkoutDate: Option[Instant])
       extends CborSerializable {
@@ -90,6 +92,8 @@ object ShoppingCart {
       state: State,
       command: Command): ReplyEffect[Event, State] = {
     command match {
+      case Get(replyTo) => Effect.reply(replyTo)(state.toSummary)
+
       case AddItem(itemId, quantity, replyTo) =>
         if (state.hasItem(itemId))
           Effect.reply(replyTo)(
@@ -113,15 +117,7 @@ object ShoppingCart {
           Effect
             .persist(CheckedOut(cartId, Instant.now()))
             .thenReply(replyTo)(updatedCart =>
-              StatusReply.Succes(updatedCart.toSummary))
-    }
-  }
-
-  private def handleEvent(state: State, event: Event) = {
-    event match {
-      case ItemAdded(cartId, itemId, quantity) =>
-        state.updateItem(itemId, quantity)
-      case CartCheckedOut(cartId) => state.toggleCheckedOut()
+              StatusReply.Success(updatedCart.toSummary))
     }
   }
 
@@ -130,6 +126,8 @@ object ShoppingCart {
       state: State,
       command: Command): ReplyEffect[Event, State] = {
     command match {
+      case Get(replyTo) => Effect.reply(replyTo)(state.toSummary)
+
       case cmd: AddItem =>
         Effect.reply(cmd.replyTo)(
           StatusReply.Error(
@@ -138,6 +136,14 @@ object ShoppingCart {
       case cmd: Checkout =>
         Effect.reply(cmd.replyTo)(
           StatusReply.Error("Can't checkout already checked out shopping cart"))
+    }
+  }
+
+  private def handleEvent(state: State, event: Event) = {
+    event match {
+      case ItemAdded(cartId, itemId, quantity) =>
+        state.updateItem(itemId, quantity)
+      case CheckedOut(_, eventTime) => state.checkout(eventTime)
     }
   }
 

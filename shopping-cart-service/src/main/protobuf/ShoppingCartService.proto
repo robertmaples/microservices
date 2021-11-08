@@ -11,6 +11,7 @@ package shoppingcart;
 service ShoppingCartService {
 	rpc AddItem (AddItemRequest) returns (Cart) {}
 	rpc Checkout (CheckoutRequest) returns (Cart) {}
+	rpc GetCart (GetCartRequest) returns (Cart) {}
 }
 
 message AddItemRequest {
@@ -20,6 +21,10 @@ message AddItemRequest {
 }
 
 message CheckoutRequest {
+	string cartId = 1;
+}
+
+message GetCartRequest {
 	string cartId = 1;
 }
 

@@ -40,7 +40,8 @@ class ShoppingCartSpec
         eventSourcedTestKit.runCommand[StatusReply[ShoppingCart.Summary]](
           replyTo => ShoppingCart.AddItem("foo", 42, replyTo))
       result1.reply should ===(
-        StatusReply.Success(ShoppingCart.Summary(Map("foo" -> 42))))
+        StatusReply.Success(
+          ShoppingCart.Summary(Map("foo" -> 42), checkedOut = false)))
       result1.event should ===(ShoppingCart.ItemAdded(cartId, "foo", 42))
     }
 
@@ -63,7 +64,7 @@ class ShoppingCartSpec
         .runCommand[StatusReply[ShoppingCart.Summary]](ShoppingCart.Checkout(_))
       result2.reply should ===(
         StatusReply.Success(
-          ShoppingCart.Summary(Map("foo" -> 42), checkout = true)))
+          ShoppingCart.Summary(Map("foo" -> 42), checkedOut = true)))
       result2.event.asInstanceOf[ShoppingCart.CheckedOut].cartId should ===(
         cartId)
 
@@ -71,6 +72,18 @@ class ShoppingCartSpec
         eventSourcedTestKit.runCommand[StatusReply[ShoppingCart.Summary]](
           ShoppingCart.AddItem("bar", 13, _))
       result3.reply.isError should ===(true)
+    }
+
+    "get" in {
+      val result1 =
+        eventSourcedTestKit.runCommand[StatusReply[ShoppingCart.Summary]](
+          ShoppingCart.AddItem("foo", 42, _))
+      result1.reply.isSuccess should ===(true)
+
+      val result2 = eventSourcedTestKit.runCommand[ShoppingCart.Summary](
+        ShoppingCart.Get(_))
+      result2.reply should ===(
+        ShoppingCart.Summary(Map("foo" -> 42), checkedOut = false))
     }
   }
 }

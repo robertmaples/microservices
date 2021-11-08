@@ -22,6 +22,19 @@ class ShoppingCartServiceImpl(system: ActorSystem[_])
 
   private val sharding = ClusterSharding(system)
 
+  override def getCart(in: proto.GetCartRequest): Future[proto.Cart] = {
+    logger.info("getCart {}", in.cartId)
+    val entityRef = sharding.entityRefFor(ShoppingCart.EntityKey, in.cartId)
+    val response =
+      entityRef.ask(ShoppingCart.Get).map { cart =>
+        if (cart.items.isEmpty)
+          throw new GrpcServiceException(
+            Status.NOT_FOUND.withDescription(s"Cart ${in.cartId} not found"))
+        else toProtoCart(cart)
+      }
+    convertError(response)
+  }
+
   override def addItem(in: proto.AddItemRequest): Future[proto.Cart] = {
     logger.info("addItem {} to cart {}", in.itemId, in.cartId)
     val entityRef = sharding.entityRefFor(ShoppingCart.EntityKey, in.cartId)
@@ -35,7 +48,7 @@ class ShoppingCartServiceImpl(system: ActorSystem[_])
     logger.info("checkout cart {}", in.cartId)
     val entityRef = sharding.entityRefFor(ShoppingCart.EntityKey, in.cartId)
     val reply: Future[ShoppingCart.Summary] =
-      entityRef.askWithStatus(ShoppingCart.Checkout(in.cartId, _))
+      entityRef.askWithStatus(ShoppingCart.Checkout(_))
     val response = reply.map(cart => toProtoCart(cart))
     convertError(response)
   }
