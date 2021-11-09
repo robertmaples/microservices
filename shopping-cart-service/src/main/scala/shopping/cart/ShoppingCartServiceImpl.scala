@@ -54,9 +54,11 @@ class ShoppingCartServiceImpl(system: ActorSystem[_])
   }
 
   private def toProtoCart(cart: ShoppingCart.Summary): proto.Cart = {
-    proto.Cart(cart.items.iterator.map { case (itemId, quantity) =>
-      proto.Item(itemId, quantity)
-    }.toSeq)
+    proto.Cart(
+      cart.items.iterator.map { case (itemId, quantity) =>
+        proto.Item(itemId, quantity)
+      }.toSeq,
+      cart.checkedOut)
   }
 
   private def convertError[T](response: Future[T]): Future[T] = {
